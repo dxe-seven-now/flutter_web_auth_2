@@ -1,5 +1,6 @@
 package com.linusu.flutter_web_auth_2
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -9,6 +10,8 @@ import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -16,15 +19,16 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 
 class FlutterWebAuth2Plugin(
-    private var context: Context? = null,
+    private var applicationContext: Context? = null,
+    private var activity: Activity? = null,
     private var channel: MethodChannel? = null
-) : MethodCallHandler, FlutterPlugin {
+) : MethodCallHandler, FlutterPlugin, ActivityAware {
     companion object {
         val callbacks = mutableMapOf<String, Result>()
     }
 
-    private fun initInstance(messenger: BinaryMessenger, context: Context) {
-        this.context = context
+    private fun initInstance(messenger: BinaryMessenger, applicationContext: Context) {
+        this.applicationContext = applicationContext
         channel = MethodChannel(messenger, "flutter_web_auth_2")
         channel?.setMethodCallHandler(this)
     }
@@ -34,8 +38,24 @@ class FlutterWebAuth2Plugin(
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        context = null
+        applicationContext = null
         channel = null
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivity() {
+        activity = null
     }
 
     override fun onMethodCall(call: MethodCall, resultCallback: Result) {
@@ -47,7 +67,7 @@ class FlutterWebAuth2Plugin(
 
                 callbacks[callbackUrlScheme] = resultCallback
                 val intent = CustomTabsIntent.Builder().build()
-                val keepAliveIntent = Intent(context, KeepAliveService::class.java)
+                val keepAliveIntent = Intent(applicationContext, KeepAliveService::class.java)
 
                 intent.intent.addFlags(options["intentFlags"] as Int)
                 intent.intent.putExtra("android.support.customtabs.extra.KEEP_ALIVE", keepAliveIntent)
@@ -56,7 +76,10 @@ class FlutterWebAuth2Plugin(
                 if (targetPackage != null) {
                     intent.intent.setPackage(targetPackage)
                 }
-                intent.launchUrl(context!!, url)
+
+                val launchContext = activity ?: applicationContext!!
+
+                intent.launchUrl(launchContext, url)
             }
 
             "cleanUpDanglingCalls" -> {
@@ -90,7 +113,7 @@ class FlutterWebAuth2Plugin(
         }
 
         // Check default browser
-        val defaultBrowserSupported = CustomTabsClient.getPackageName(context!!, emptyList<String>()) != null
+        val defaultBrowserSupported = CustomTabsClient.getPackageName(applicationContext!!, emptyList<String>()) != null
         if (defaultBrowserSupported) {
             return null;
         }
@@ -109,7 +132,7 @@ class FlutterWebAuth2Plugin(
     private fun getInstalledBrowsers(): List<String> {
         // Get all apps that can handle VIEW intents
         val activityIntent = Intent(Intent.ACTION_VIEW, Uri.parse("http://"))
-        val packageManager = context!!.packageManager
+        val packageManager = applicationContext!!.packageManager
         val viewIntentHandlers = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             packageManager.queryIntentActivities(activityIntent, PackageManager.MATCH_ALL)
         } else {
@@ -139,7 +162,7 @@ class FlutterWebAuth2Plugin(
 
     private fun isSupportCustomTabs(packageName: String): Boolean {
         val value = CustomTabsClient.getPackageName(
-            context!!,
+            applicationContext!!,
             arrayListOf(packageName),
             true
         )
